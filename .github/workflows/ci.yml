@@ -10,7 +10,6 @@ on:
         type: choice
         options:
           - windows
-          - macos
           - linux
       architecture:
         description: 'Architecture to build'
@@ -33,21 +32,39 @@ on:
           - mtd
 
 jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate architecture for Windows
+        if: inputs.os == 'windows' && inputs.architecture == 'arm64'
+        run: |
+          echo "::error::ARM64 is not supported for Windows builds"
+          exit 1
+      - name: Validation passed
+        run: echo "Input validation passed"
+    outputs:
+      validation-passed: ${{ !(inputs.os == 'windows' && inputs.architecture == 'arm64') }}
+
   build-frida:
-    runs-on: ${{ inputs.os }}-latest
+    needs: validate-inputs
+    if: needs.validate-inputs.outputs.validation-passed == 'true'
+    runs-on: ${{ inputs.os == 'linux' && 'ubuntu-latest' || 'windows-latest' }}
+    container: ${{ inputs.os == 'linux' && inputs.architecture == 'arm64' && 'ghcr.io/frida/x-tools-linux-arm64:latest' || inputs.os == 'linux' && inputs.architecture == 'x86' && 'ghcr.io/frida/x-tools-linux-x86:latest' || inputs.os == 'linux' && 'ghcr.io/frida/x-tools-linux-x86_64:latest' || '' }}
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           
-      - name: Install Python
+      - name: Install Python (Windows)
+        if: inputs.os == 'windows'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           architecture: ${{ inputs.architecture == 'x86_64' && 'x64' || inputs.architecture }}
           
-      - name: Install dependencies
+      - name: Install dependencies (Windows)
+        if: inputs.os == 'windows'
         run: |
           pip install setuptools toml
       
@@ -63,11 +80,14 @@ jobs:
           echo "FRIDA_PREFIX=$env:RUNNER_WORKSPACE\dist" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "FRIDA_VERSION=$(python ${{ github.workspace }}/releng/frida_version.py)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       
-      - name: Set environment variables (Unix)
-        if: inputs.os != 'windows'
+      - name: Set environment variables (Linux)
+        if: inputs.os == 'linux'
         run: |
           echo "FRIDA_PREFIX=$RUNNER_WORKSPACE/dist" >> $GITHUB_ENV
           echo "FRIDA_VERSION=$(python ${{ github.workspace }}/releng/frida_version.py)" >> $GITHUB_ENV
+          if [ "${{ inputs.architecture }}" != "x86_64" ]; then
+            echo "FRIDA_QEMU_SYSROOT=/opt/x-tools/$XTOOLS_HOST/$XTOOLS_HOST/sysroot" >> $GITHUB_ENV
+          fi
           
       - name: Grab needed submodules
         run: python tools/ensure-submodules.py frida-core
@@ -79,8 +99,8 @@ jobs:
           version: '6.7.0'
           setup-python: false
       
-      - name: Install Qt if needed (macOS/Linux)
-        if: (inputs.os == 'macos' || inputs.os == 'linux') && inputs.architecture == 'x86_64'
+      - name: Install Qt if needed (Linux)
+        if: inputs.os == 'linux' && inputs.architecture == 'x86_64'
         uses: jurplel/install-qt-action@v3
         with:
           version: '6.7.0'
@@ -92,21 +112,21 @@ jobs:
           New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\deps" -Force
           python releng/deps.py sync toolchain windows-${{ inputs.architecture }} "$env:GITHUB_WORKSPACE\deps\toolchain-windows-${{ inputs.architecture }}"
       
-      - name: Download toolchain (Unix)
-        if: inputs.os != 'windows'
+      - name: Download toolchain (Linux)
+        if: inputs.os == 'linux'
         run: |
           mkdir -p "$GITHUB_WORKSPACE/deps"
-          python releng/deps.py sync toolchain ${{ inputs.os }}-${{ inputs.architecture }} "$GITHUB_WORKSPACE/deps/toolchain-${{ inputs.os }}-${{ inputs.architecture }}"
+          python releng/deps.py sync toolchain $XTOOLS_HOST "$GITHUB_WORKSPACE/deps/toolchain-$XTOOLS_HOST"
       
       - name: Download SDK (Windows)
         if: inputs.os == 'windows'
         run: |
           python releng/deps.py sync sdk windows-${{ inputs.architecture }}-${{ inputs.config }} "$env:GITHUB_WORKSPACE\deps\sdk-windows-${{ inputs.architecture }}-${{ inputs.config }}"
       
-      - name: Download SDK (Unix)
-        if: inputs.os != 'windows'
+      - name: Download SDK (Linux)
+        if: inputs.os == 'linux'
         run: |
-          python releng/deps.py sync sdk ${{ inputs.os }}-${{ inputs.architecture }} "$GITHUB_WORKSPACE/deps/sdk-${{ inputs.os }}-${{ inputs.architecture }}"
+          python releng/deps.py sync sdk $XTOOLS_HOST "$GITHUB_WORKSPACE/deps/sdk-$XTOOLS_HOST"
       
       - name: Configure (Windows)
         if: inputs.os == 'windows'
@@ -123,18 +143,19 @@ jobs:
           "-Dfrida-gum:devkits=gum,gumjs"
           "-Dfrida-core:devkits=core"
       
-      - name: Configure (Unix)
-        if: inputs.os != 'windows'
+      - name: Configure (Linux)
+        if: inputs.os == 'linux'
         run: >-
           ./configure
           --prefix=$FRIDA_PREFIX
-          --host=${{ inputs.os }}-${{ inputs.architecture }}
+          --host=$XTOOLS_HOST
           --enable-gadget
           --enable-server
           --enable-portal
           --enable-inject
           --
-          -Dfrida_qml=auto
+          -Dlibdir=lib
+          -Dfrida_qml=${{ inputs.architecture == 'x86_64' && 'enabled' || 'disabled' }}
           -Dfrida-gum:devkits=gum,gumjs
           -Dfrida-core:devkits=core
       
@@ -142,16 +163,16 @@ jobs:
         if: inputs.os == 'windows'
         run: .\make
       
-      - name: Compile (Unix)
-        if: inputs.os != 'windows'
+      - name: Compile (Linux)
+        if: inputs.os == 'linux'
         run: make
       
       - name: Install (Windows)
         if: inputs.os == 'windows'
         run: .\make install
       
-      - name: Install (Unix)
-        if: inputs.os != 'windows'
+      - name: Install (Linux)
+        if: inputs.os == 'linux'
         run: make install
       
       - name: List detailed build products (Windows)
@@ -175,8 +196,8 @@ jobs:
           echo "- GumJS: $Env:FRIDA_PREFIX\lib\frida\devkits\gumjs\"
           echo "- Core: $Env:FRIDA_PREFIX\lib\frida\devkits\core\"
       
-      - name: List detailed build products (Unix)
-        if: inputs.os != 'windows'
+      - name: List detailed build products (Linux)
+        if: inputs.os == 'linux'
         run: |
           echo "Build completed successfully!"
           echo "--------------------------------------"
@@ -189,9 +210,6 @@ jobs:
             echo "frida-gadget: $FRIDA_PREFIX/lib/frida/32/frida-gadget.so"
           else
             echo "frida-gadget: $FRIDA_PREFIX/lib/frida/64/frida-gadget.so"
-          fi
-          if [[ "${{ inputs.os }}" == "macos" ]]; then
-            echo "frida-gadget: $FRIDA_PREFIX/lib/frida/frida-gadget.dylib"
           fi
           echo ""
           echo "Devkits:"
