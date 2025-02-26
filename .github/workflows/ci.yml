@@ -1,4 +1,4 @@
-name: Windows Build
+name: Frida Windows Build
 
 on:
   workflow_dispatch:
@@ -27,28 +27,79 @@ jobs:
           python-version: '3.12'
           architecture: ${{ inputs.architecture == 'x86_64' && 'x64' || inputs.architecture }}
           
-      - name: Install setuptools
-        run: pip install setuptools
-        
+      - name: Install dependencies
+        run: |
+          pip install setuptools toml
+      
       - name: Check out releng
         run: |
           git submodule update --init --depth 1 releng
           cd releng
           git submodule update --init --depth 1
-          
-      - name: Add convenience environment variables
+      
+      - name: Add environment variables
         run: |
-          echo "FRIDA_PREFIX=$Env:RUNNER_WORKSPACE\dist" >> $Env:GITHUB_ENV
-          echo "FRIDA_VERSION=$(python ${{ github.workspace }}/releng/frida_version.py)" >> $Env:GITHUB_ENV
+          echo "FRIDA_PREFIX=$env:RUNNER_WORKSPACE\dist" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "FRIDA_VERSION=$(python ${{ github.workspace }}/releng/frida_version.py)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           
       - name: Grab needed submodules
         run: python tools/ensure-submodules.py frida-core
-        
-      - name: Build dependencies using releng scripts
+      
+      - name: Install Qt if needed
+        if: ${{ inputs.architecture == 'x86_64' }}
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.7.0'
+          cache: true
+          setup-python: false
+      
+      - name: Build toolchain
         run: |
-          python releng\deps.py roll toolchain windows-${{ inputs.architecture }}
-          python releng\deps.py roll sdk windows-${{ inputs.architecture }} --activate
-        
+          python releng\deps.py build --bundle=toolchain --host=windows-${{ inputs.architecture }}
+        shell: bash
+        env:
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: fake-key
+          AWS_SECRET_ACCESS_KEY: fake-secret
+          AWS_SDK_LOAD_CONFIG: 0
+          AWS_EC2_METADATA_DISABLED: true
+      
+      - name: Build SDK
+        run: |
+          python releng\deps.py build --bundle=sdk --host=windows-${{ inputs.architecture }}
+        shell: bash
+        env:
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: fake-key
+          AWS_SECRET_ACCESS_KEY: fake-secret
+          AWS_SDK_LOAD_CONFIG: 0
+          AWS_EC2_METADATA_DISABLED: true
+      
+      - name: Setup build environment
+        run: |
+          $Location = "$env:GITHUB_WORKSPACE\build"
+          New-Item -ItemType Directory -Path "$Location" -Force
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\build\sdk-windows-${{ inputs.architecture }}" -Force
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\build\toolchain-windows-${{ inputs.architecture }}" -Force
+          
+          Copy-Item -Recurse -Force "$env:GITHUB_WORKSPACE\deps\src\_sdk.out\windows-${{ inputs.architecture }}\*" "$env:GITHUB_WORKSPACE\build\sdk-windows-${{ inputs.architecture }}\"
+          Copy-Item -Recurse -Force "$env:GITHUB_WORKSPACE\deps\src\_toolchain.out\windows-${{ inputs.architecture == 'x86_64' && 'x86_64' || 'x86' }}\*" "$env:GITHUB_WORKSPACE\build\toolchain-windows-${{ inputs.architecture }}\"
+          
+          # Create VERSION.txt files
+          $Version = Get-Content "$env:GITHUB_WORKSPACE\deps\src\_sdk.out\windows-${{ inputs.architecture }}\VERSION.txt" -ErrorAction SilentlyContinue
+          if ($Version) {
+            Set-Content -Path "$env:GITHUB_WORKSPACE\build\sdk-windows-${{ inputs.architecture }}\VERSION.txt" -Value $Version
+          } else {
+            Set-Content -Path "$env:GITHUB_WORKSPACE\build\sdk-windows-${{ inputs.architecture }}\VERSION.txt" -Value "16.0.0"
+          }
+          
+          $Version = Get-Content "$env:GITHUB_WORKSPACE\deps\src\_toolchain.out\windows-${{ inputs.architecture == 'x86_64' && 'x86_64' || 'x86' }}\VERSION.txt" -ErrorAction SilentlyContinue
+          if ($Version) {
+            Set-Content -Path "$env:GITHUB_WORKSPACE\build\toolchain-windows-${{ inputs.architecture }}\VERSION.txt" -Value $Version
+          } else {
+            Set-Content -Path "$env:GITHUB_WORKSPACE\build\toolchain-windows-${{ inputs.architecture }}\VERSION.txt" -Value "16.0.0"
+          }
+
       - name: Configure
         run: >-
           .\configure
@@ -62,13 +113,13 @@ jobs:
           "-Dfrida_qml=auto"
           "-Dfrida-gum:devkits=gum,gumjs"
           "-Dfrida-core:devkits=core"
-          
+      
       - name: Compile
         run: .\make
-        
+      
       - name: Install
         run: .\make install
-        
+      
       - name: List detailed build products
         run: |
           echo "Build completed successfully!"
@@ -88,3 +139,9 @@ jobs:
           echo "- Gum: $Env:FRIDA_PREFIX\lib\frida\devkits\gum\"
           echo "- GumJS: $Env:FRIDA_PREFIX\lib\frida\devkits\gumjs\"
           echo "- Core: $Env:FRIDA_PREFIX\lib\frida\devkits\core\"
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frida-${{ inputs.architecture }}
+          path: ${{ env.FRIDA_PREFIX }}
