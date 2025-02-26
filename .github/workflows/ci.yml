@@ -52,25 +52,14 @@ jobs:
           version: '6.7.0'
           setup-python: false
       
-      - name: Build toolchain
+      - name: Download toolchain
         run: |
-          python releng/deps.py build --bundle=toolchain --host=windows-${{ inputs.architecture }}
-        env:
-          AWS_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: fake-key
-          AWS_SECRET_ACCESS_KEY: fake-secret
-          AWS_SDK_LOAD_CONFIG: 0
-          AWS_EC2_METADATA_DISABLED: true
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\deps" -Force
+          python releng/deps.py sync toolchain windows-${{ inputs.architecture }} "$env:GITHUB_WORKSPACE\deps\toolchain-windows-${{ inputs.architecture == 'x86_64' && 'x86_64' || 'x86' }}"
       
-      - name: Build SDK
+      - name: Download SDK
         run: |
-          python releng/deps.py build --bundle=sdk --host=windows-${{ inputs.architecture }}
-        env:
-          AWS_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: fake-key
-          AWS_SECRET_ACCESS_KEY: fake-secret
-          AWS_SDK_LOAD_CONFIG: 0
-          AWS_EC2_METADATA_DISABLED: true
+          python releng/deps.py sync sdk windows-${{ inputs.architecture }} "$env:GITHUB_WORKSPACE\deps\sdk-windows-${{ inputs.architecture }}"
       
       - name: Setup build environment
         run: |
@@ -80,28 +69,16 @@ jobs:
           New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\build\toolchain-windows-${{ inputs.architecture }}" -Force
           
           # Copy SDK files
-          $SdkSource = "$env:GITHUB_WORKSPACE\deps\src\_sdk.out\windows-${{ inputs.architecture }}"
+          $SdkSource = "$env:GITHUB_WORKSPACE\deps\sdk-windows-${{ inputs.architecture }}"
           if (Test-Path $SdkSource) {
             Copy-Item -Recurse -Force "$SdkSource\*" "$env:GITHUB_WORKSPACE\build\sdk-windows-${{ inputs.architecture }}\"
           }
           
           # Copy toolchain files
-          $ToolchainSource = "$env:GITHUB_WORKSPACE\deps\src\_toolchain.out\windows-${{ inputs.architecture == 'x86_64' && 'x86_64' || 'x86' }}"
+          $ToolchainSource = "$env:GITHUB_WORKSPACE\deps\toolchain-windows-${{ inputs.architecture == 'x86_64' && 'x86_64' || 'x86' }}"
           if (Test-Path $ToolchainSource) {
             Copy-Item -Recurse -Force "$ToolchainSource\*" "$env:GITHUB_WORKSPACE\build\toolchain-windows-${{ inputs.architecture }}\"
           }
-          
-          # Create VERSION.txt files
-          $Version = "16.0.0"
-          if (Test-Path "$SdkSource\VERSION.txt") {
-            $Version = Get-Content "$SdkSource\VERSION.txt" -ErrorAction SilentlyContinue
-          }
-          Set-Content -Path "$env:GITHUB_WORKSPACE\build\sdk-windows-${{ inputs.architecture }}\VERSION.txt" -Value $Version
-          
-          if (Test-Path "$ToolchainSource\VERSION.txt") {
-            $Version = Get-Content "$ToolchainSource\VERSION.txt" -ErrorAction SilentlyContinue
-          }
-          Set-Content -Path "$env:GITHUB_WORKSPACE\build\toolchain-windows-${{ inputs.architecture }}\VERSION.txt" -Value $Version
 
       - name: Configure
         run: >-
