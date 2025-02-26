@@ -11,6 +11,16 @@ on:
         options:
           - x86
           - x86_64
+      config:
+        description: 'Runtime configuration'
+        required: true
+        default: 'mt'
+        type: choice
+        options:
+          - md
+          - mdd
+          - mt
+          - mtd
 
 jobs:
   build-frida:
@@ -55,36 +65,17 @@ jobs:
       - name: Download toolchain
         run: |
           New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\deps" -Force
-          python releng/deps.py sync toolchain windows-${{ inputs.architecture }} "$env:GITHUB_WORKSPACE\deps\toolchain-windows-${{ inputs.architecture == 'x86_64' && 'x86_64' || 'x86' }}"
+          python releng/deps.py sync toolchain windows-${{ inputs.architecture }} "$env:GITHUB_WORKSPACE\deps\toolchain-windows-${{ inputs.architecture }}"
       
       - name: Download SDK
         run: |
-          python releng/deps.py sync sdk windows-${{ inputs.architecture }} "$env:GITHUB_WORKSPACE\deps\sdk-windows-${{ inputs.architecture }}"
+          python releng/deps.py sync sdk windows-${{ inputs.architecture }}-${{ inputs.config }} "$env:GITHUB_WORKSPACE\deps\sdk-windows-${{ inputs.architecture }}-${{ inputs.config }}"
       
-      - name: Setup build environment
-        run: |
-          $Location = "$env:GITHUB_WORKSPACE\build"
-          New-Item -ItemType Directory -Path "$Location" -Force
-          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\build\sdk-windows-${{ inputs.architecture }}" -Force
-          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\build\toolchain-windows-${{ inputs.architecture }}" -Force
-          
-          # Copy SDK files
-          $SdkSource = "$env:GITHUB_WORKSPACE\deps\sdk-windows-${{ inputs.architecture }}"
-          if (Test-Path $SdkSource) {
-            Copy-Item -Recurse -Force "$SdkSource\*" "$env:GITHUB_WORKSPACE\build\sdk-windows-${{ inputs.architecture }}\"
-          }
-          
-          # Copy toolchain files
-          $ToolchainSource = "$env:GITHUB_WORKSPACE\deps\toolchain-windows-${{ inputs.architecture == 'x86_64' && 'x86_64' || 'x86' }}"
-          if (Test-Path $ToolchainSource) {
-            Copy-Item -Recurse -Force "$ToolchainSource\*" "$env:GITHUB_WORKSPACE\build\toolchain-windows-${{ inputs.architecture }}\"
-          }
-
       - name: Configure
         run: >-
           .\configure
           --prefix=$Env:FRIDA_PREFIX
-          --host=windows-${{ inputs.architecture }}
+          --host=windows-${{ inputs.architecture }}-${{ inputs.config }}
           --enable-gadget
           --enable-server
           --enable-portal
@@ -123,5 +114,5 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: frida-${{ inputs.architecture }}
+          name: frida-${{ inputs.architecture }}-${{ inputs.config }}
           path: ${{ env.FRIDA_PREFIX }}
