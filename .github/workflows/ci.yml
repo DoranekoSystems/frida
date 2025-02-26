@@ -21,13 +21,6 @@ jobs:
         with:
           fetch-depth: 0
           
-
-      - name: Check out releng
-        run: |
-          git submodule update --init --depth 1 releng
-          cd releng
-          git submodule update --init --depth 1
-          
       - name: Add convenience environment variables
         run: |
           echo "FRIDA_PREFIX=$Env:RUNNER_WORKSPACE\dist" >> $Env:GITHUB_ENV
@@ -41,6 +34,15 @@ jobs:
           
       - name: Install setuptools
         run: pip install setuptools
+        
+      - name: Check out releng
+        run: |
+          git submodule update --init --depth 1 releng
+          cd releng
+          git submodule update --init --depth 1
+          
+      - name: Grab needed submodules
+        run: python tools/ensure-submodules.py frida-core
         
       - name: Cache SDK
         id: cache-sdk
@@ -64,13 +66,6 @@ jobs:
         with:
           fetch-depth: 0
           
-
-      - name: Check out releng
-        run: |
-          git submodule update --init --depth 1 releng
-          cd releng
-          git submodule update --init --depth 1
-          
       - name: Add convenience environment variables
         run: |
           echo "FRIDA_PREFIX=$Env:RUNNER_WORKSPACE\dist" >> $Env:GITHUB_ENV
@@ -84,6 +79,15 @@ jobs:
           
       - name: Install setuptools
         run: pip install setuptools
+        
+      - name: Check out releng
+        run: |
+          git submodule update --init --depth 1 releng
+          cd releng
+          git submodule update --init --depth 1
+          
+      - name: Grab needed submodules
+        run: python tools/ensure-submodules.py frida-core
         
       - name: Install Qt
         if: ${{ contains(inputs.architecture, '64') }}
@@ -121,18 +125,22 @@ jobs:
       - name: Install
         run: .\make install
         
-      - name: List build products
+      - name: List detailed build products
         run: |
           echo "Build completed successfully!"
           echo "--------------------------------------"
           echo "Build products are available at: $Env:FRIDA_PREFIX"
-          echo "You can find the following components:"
-          echo "- frida-server.exe"
-          echo "- frida-portal.exe"
-          echo "- frida-inject.exe"
+          echo ""
+          echo "frida-server: $Env:FRIDA_PREFIX\bin\frida-server.exe"
+          echo "frida-portal: $Env:FRIDA_PREFIX\bin\frida-portal.exe"
+          echo "frida-inject: $Env:FRIDA_PREFIX\bin\frida-inject.exe"
           if ('${{ inputs.architecture }}' -eq 'x86') {
-            echo "- frida-gadget.dll (32-bit)"
+            echo "frida-gadget: $Env:FRIDA_PREFIX\lib\frida\32\frida-gadget.dll"
           } else {
-            echo "- frida-gadget.dll (64-bit)"
+            echo "frida-gadget: $Env:FRIDA_PREFIX\lib\frida\64\frida-gadget.dll"
           }
-          echo "--------------------------------------"
+          echo ""
+          echo "Devkits:"
+          echo "- Gum: $Env:FRIDA_PREFIX\lib\frida\devkits\gum\"
+          echo "- GumJS: $Env:FRIDA_PREFIX\lib\frida\devkits\gumjs\"
+          echo "- Core: $Env:FRIDA_PREFIX\lib\frida\devkits\core\"
