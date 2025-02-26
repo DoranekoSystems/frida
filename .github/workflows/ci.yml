@@ -13,7 +13,7 @@ on:
           - x86_64
 
 jobs:
-  sdk-windows:
+  build-frida:
     runs-on: windows-latest
     steps:
       - name: Check out repo
@@ -44,67 +44,11 @@ jobs:
       - name: Grab needed submodules
         run: python tools/ensure-submodules.py frida-core
         
-      - name: Cache SDK
-        id: cache-sdk
-        uses: actions/cache@v3
-        with:
-          path: |
-            build/sdk-windows-${{ inputs.architecture }}
-            build/toolchain-windows-${{ inputs.architecture }}
-          key: ${{ runner.os }}-sdk-windows-${{ inputs.architecture }}-${{ hashFiles('releng/setup-env.sh', 'releng/windows-*') }}
-          
-      - name: Build SDK
-        if: steps.cache-sdk.outputs.cache-hit != 'true'
-        run: .\make deps
-
-  frida-windows:
-    needs: sdk-windows
-    runs-on: windows-latest
-    steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          architecture: ${{ inputs.architecture == 'x86_64' && 'x64' || inputs.architecture }}
-          
-      - name: Install setuptools
-        run: pip install setuptools
-        
-      - name: Check out releng
+      - name: Build dependencies using releng scripts
         run: |
-          git submodule update --init --depth 1 releng
-          cd releng
-          git submodule update --init --depth 1
-          
-      - name: Add convenience environment variables
-        run: |
-          echo "FRIDA_PREFIX=$Env:RUNNER_WORKSPACE\dist" >> $Env:GITHUB_ENV
-          echo "FRIDA_VERSION=$(python ${{ github.workspace }}/releng/frida_version.py)" >> $Env:GITHUB_ENV
-          
-      - name: Grab needed submodules
-        run: python tools/ensure-submodules.py frida-core
+          python releng\deps.py roll toolchain windows-${{ inputs.architecture }}
+          python releng\deps.py roll sdk windows-${{ inputs.architecture }} --activate
         
-      - name: Install Qt
-        if: ${{ contains(inputs.architecture, '64') }}
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: '6.7.0'
-          cache: true
-          setup-python: false
-          
-      - name: Restore SDK from cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            build/sdk-windows-${{ inputs.architecture }}
-            build/toolchain-windows-${{ inputs.architecture }}
-          key: ${{ runner.os }}-sdk-windows-${{ inputs.architecture }}-${{ hashFiles('releng/setup-env.sh', 'releng/windows-*') }}
-          
       - name: Configure
         run: >-
           .\configure
