@@ -21,11 +21,6 @@ jobs:
         with:
           fetch-depth: 0
           
-      - name: Add convenience environment variables
-        run: |
-          echo "FRIDA_PREFIX=$Env:RUNNER_WORKSPACE\dist" >> $Env:GITHUB_ENV
-          echo "FRIDA_VERSION=$(python releng/frida_version.py)" >> $Env:GITHUB_ENV
-          
       - name: Install Python
         uses: actions/setup-python@v5
         with:
@@ -40,6 +35,11 @@ jobs:
           git submodule update --init --depth 1 releng
           cd releng
           git submodule update --init --depth 1
+          
+      - name: Add convenience environment variables
+        run: |
+          echo "FRIDA_PREFIX=$Env:RUNNER_WORKSPACE\dist" >> $Env:GITHUB_ENV
+          echo "FRIDA_VERSION=$(python ${{ github.workspace }}/releng/frida_version.py)" >> $Env:GITHUB_ENV
           
       - name: Grab needed submodules
         run: python tools/ensure-submodules.py frida-core
@@ -66,11 +66,6 @@ jobs:
         with:
           fetch-depth: 0
           
-      - name: Add convenience environment variables
-        run: |
-          echo "FRIDA_PREFIX=$Env:RUNNER_WORKSPACE\dist" >> $Env:GITHUB_ENV
-          echo "FRIDA_VERSION=$(python releng/frida_version.py)" >> $Env:GITHUB_ENV
-          
       - name: Install Python
         uses: actions/setup-python@v5
         with:
@@ -85,6 +80,11 @@ jobs:
           git submodule update --init --depth 1 releng
           cd releng
           git submodule update --init --depth 1
+          
+      - name: Add convenience environment variables
+        run: |
+          echo "FRIDA_PREFIX=$Env:RUNNER_WORKSPACE\dist" >> $Env:GITHUB_ENV
+          echo "FRIDA_VERSION=$(python ${{ github.workspace }}/releng/frida_version.py)" >> $Env:GITHUB_ENV
           
       - name: Grab needed submodules
         run: python tools/ensure-submodules.py frida-core
