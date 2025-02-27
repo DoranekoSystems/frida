@@ -1,4 +1,4 @@
-name: frida-easy-build
+name: frida-simplified-build
 
 on:
   workflow_dispatch:
@@ -50,8 +50,8 @@ on:
         required: false
         default: 'gum,gumjs,core'
         type: string
-      incremental_build:
-        description: 'Enable incremental build'
+      skip_configure:
+        description: 'Skip configure step (for incremental builds)'
         required: false
         default: false
         type: boolean
@@ -82,19 +82,6 @@ jobs:
         with:
           fetch-depth: 0
           
-      # Check for cached build if incremental build is enabled
-      - name: Check for cached build
-        if: inputs.incremental_build == true
-        id: cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ${{ runner.workspace }}/dist
-            build
-          key: ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-${{ hashFiles('**/*.c', '**/*.h', '**/*.js', '**/meson.build') }}
-          restore-keys: |
-            ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-
-
       # Process custom components
       - name: Process custom components
         if: inputs.custom_components != ''
@@ -247,8 +234,9 @@ jobs:
           "devkit_args=$devkitArgs" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
         shell: pwsh
       
+      # Configure step - only run if skip_configure is false
       - name: Configure (Windows)
-        if: inputs.os == 'windows'
+        if: inputs.os == 'windows' && inputs.skip_configure != true
         run: >-
           .\configure
           --prefix=$Env:FRIDA_PREFIX
@@ -261,8 +249,9 @@ jobs:
           "-Dfrida_qml=auto"
           ${{ steps.devkits.outputs.devkit_args }}
       
+      # Configure step - only run if skip_configure is false
       - name: Configure (Linux)
-        if: inputs.os == 'linux'
+        if: inputs.os == 'linux' && inputs.skip_configure != true
         run: >-
           ./configure
           --prefix=$FRIDA_PREFIX
