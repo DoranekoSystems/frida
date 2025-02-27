@@ -112,20 +112,6 @@ jobs:
           if (Test-Path $ninjaFile) {
             Write-Host "Removing build.ninja to allow reconfiguration while keeping build artifacts..."
             Remove-Item -Path $ninjaFile -Force
-            
-            $mesonFiles = @(
-              "build/meson-info/intro-targets.json",
-              "build/meson-private/build.dat",
-              "build/meson-private/meson_benchmark_setup.dat",
-              "build/meson-private/meson_test_setup.dat"
-            )
-            
-            foreach ($file in $mesonFiles) {
-              if (Test-Path $file) {
-                Write-Host "Removing related meson file: $file"
-                Remove-Item -Path $file -Force
-              }
-            }
           } else {
             Write-Host "No existing build.ninja found, proceeding with clean configure..."
           }
