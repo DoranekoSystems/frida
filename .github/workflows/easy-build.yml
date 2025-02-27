@@ -90,8 +90,8 @@ jobs:
           "cache_key=$devkitsForCache" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
         shell: pwsh
       
-      # Check for cached build if incremental build is enabled
-      - name: Check for cached build
+      # Check for cached build artifacts
+      - name: Check for cached build artifacts
         if: inputs.incremental_build == true
         id: cache
         uses: actions/cache@v3
@@ -102,6 +102,34 @@ jobs:
           key: ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-${{ steps.devkits-cache.outputs.cache_key }}-${{ hashFiles('**/*.c', '**/*.h', '**/*.js', '**/meson.build') }}
           restore-keys: |
             ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-${{ steps.devkits-cache.outputs.cache_key }}-
+      
+      - name: Prepare for configure in incremental build
+        if: inputs.incremental_build == true
+        run: |
+          Write-Host "Preparing for incremental build..."
+          
+          $ninjaFile = "build/build.ninja"
+          if (Test-Path $ninjaFile) {
+            Write-Host "Removing build.ninja to allow reconfiguration while keeping build artifacts..."
+            Remove-Item -Path $ninjaFile -Force
+            
+            $mesonFiles = @(
+              "build/meson-info/intro-targets.json",
+              "build/meson-private/build.dat",
+              "build/meson-private/meson_benchmark_setup.dat",
+              "build/meson-private/meson_test_setup.dat"
+            )
+            
+            foreach ($file in $mesonFiles) {
+              if (Test-Path $file) {
+                Write-Host "Removing related meson file: $file"
+                Remove-Item -Path $file -Force
+              }
+            }
+          } else {
+            Write-Host "No existing build.ninja found, proceeding with clean configure..."
+          }
+        shell: pwsh
       
       # Process custom components
       - name: Process custom components
@@ -155,7 +183,9 @@ jobs:
       - name: Install dependencies (Windows)
         if: inputs.os == 'windows'
         run: |
-          pip install setuptools toml
+          pip install setuptools toml ninja
+          echo "Ninja version:"
+          ninja --version
       
       - name: Check out releng
         run: |
@@ -255,9 +285,9 @@ jobs:
           "devkit_args=$devkitArgs" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
         shell: pwsh
       
-      # Configure step - only run if it's not an incremental build
+      # Configure step - always run since build.ninja was removed
       - name: Configure (Windows)
-        if: inputs.os == 'windows' && inputs.incremental_build != true
+        if: inputs.os == 'windows'
         run: >-
           .\configure
           --prefix=$Env:FRIDA_PREFIX
@@ -270,9 +300,9 @@ jobs:
           "-Dfrida_qml=auto"
           ${{ steps.devkits.outputs.devkit_args }}
       
-      # Configure step - only run if it's not an incremental build
+      # Configure step - always run since build.ninja was removed
       - name: Configure (Linux)
-        if: inputs.os == 'linux' && inputs.incremental_build != true
+        if: inputs.os == 'linux'
         run: >-
           ./configure
           --prefix=$FRIDA_PREFIX
