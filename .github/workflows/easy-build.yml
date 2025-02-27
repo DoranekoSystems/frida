@@ -82,6 +82,14 @@ jobs:
         with:
           fetch-depth: 0
       
+      # Process devkits for cache key (replace commas with hyphens)
+      - name: Process devkits for cache key
+        id: devkits-cache
+        run: |
+          $devkitsForCache = "${{ inputs.devkits }}".Replace(",", "-")
+          "cache_key=$devkitsForCache" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        shell: pwsh
+      
       # Check for cached build if incremental build is enabled
       - name: Check for cached build
         if: inputs.incremental_build == true
@@ -91,9 +99,9 @@ jobs:
           path: |
             ${{ runner.workspace }}/dist
             build
-          key: ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-${{ inputs.devkits }}-${{ hashFiles('**/*.c', '**/*.h', '**/*.js', '**/meson.build') }}
+          key: ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-${{ steps.devkits-cache.outputs.cache_key }}-${{ hashFiles('**/*.c', '**/*.h', '**/*.js', '**/meson.build') }}
           restore-keys: |
-            ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-${{ inputs.devkits }}-
+            ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-${{ steps.devkits-cache.outputs.cache_key }}-
       
       # Process custom components
       - name: Process custom components
