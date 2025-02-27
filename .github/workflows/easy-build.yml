@@ -30,6 +30,31 @@ on:
           - mdd
           - mt
           - mtd
+      custom_components:
+        description: 'Custom components to use (comma-separated, e.g., frida-gum,frida-core)'
+        required: false
+        default: ''
+        type: string
+      custom_repo:
+        description: 'Custom repository for components (leave empty to use current fork)'
+        required: false
+        default: ''
+        type: string
+      custom_branch:
+        description: 'Branch to use for custom components'
+        required: false
+        default: 'main'
+        type: string
+      devkits:
+        description: 'Devkits to build (comma-separated)'
+        required: false
+        default: 'gum,gumjs,core'
+        type: string
+      incremental_build:
+        description: 'Enable incremental build'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   validate-inputs:
@@ -51,11 +76,67 @@ jobs:
     runs-on: ${{ inputs.os == 'linux' && 'ubuntu-latest' || 'windows-latest' }}
     container: ${{ inputs.os == 'linux' && inputs.architecture == 'arm64' && 'ghcr.io/frida/x-tools-linux-arm64:latest' || inputs.os == 'linux' && inputs.architecture == 'x86' && 'ghcr.io/frida/x-tools-linux-x86:latest' || inputs.os == 'linux' && 'ghcr.io/frida/x-tools-linux-x86_64:latest' || '' }}
     steps:
+      # Base Frida checkout
       - name: Check out repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           
+      # Check for cached build if incremental build is enabled
+      - name: Check for cached build
+        if: inputs.incremental_build == true
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ runner.workspace }}/dist
+            build
+          key: ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-${{ hashFiles('**/*.c', '**/*.h', '**/*.js', '**/meson.build') }}
+          restore-keys: |
+            ${{ inputs.os }}-${{ inputs.architecture }}-${{ inputs.config }}-
+
+      # Process custom components
+      - name: Process custom components
+        if: inputs.custom_components != ''
+        run: |
+          # Create array of components
+          $customComponents = "${{ inputs.custom_components }}".Split(',')
+          
+          foreach ($component in $customComponents) {
+            Write-Host "Processing custom component: $component"
+            
+            # Use custom repo if specified, otherwise use the current fork's repo URL
+            if ("${{ inputs.custom_repo }}" -ne "") {
+              $repoUrl = "${{ inputs.custom_repo }}"
+            } else {
+              $repoUrl = "${{ github.server_url }}/${{ github.repository }}"
+            }
+            
+            # If the component directory already exists, remove it
+            if (Test-Path $component) {
+              Remove-Item -Recurse -Force $component
+            }
+            
+            # Clone the custom component from the specified repo/branch
+            git clone --depth 1 -b "${{ inputs.custom_branch }}" "$repoUrl" temp_$component
+            
+            # If the repo contains the component as a subdirectory, move just that directory
+            if (Test-Path "temp_$component/$component") {
+              Move-Item "temp_$component/$component" .
+            } else {
+              # Otherwise, assume the repo is the component itself
+              Move-Item "temp_$component" $component
+            }
+            
+            # Cleanup temporary directory
+            if (Test-Path "temp_$component") {
+              Remove-Item -Recurse -Force "temp_$component"
+            }
+            
+            Write-Host "Custom component $component has been set up"
+          }
+        shell: pwsh
+        
       - name: Install Python (Windows)
         if: inputs.os == 'windows'
         uses: actions/setup-python@v5
@@ -89,8 +170,24 @@ jobs:
             echo "FRIDA_QEMU_SYSROOT=/opt/x-tools/$XTOOLS_HOST/$XTOOLS_HOST/sysroot" >> $GITHUB_ENV
           fi
           
-      - name: Grab needed submodules
-        run: python tools/ensure-submodules.py frida-core
+      - name: Setup specified components
+        run: |
+          # Build list of components to ensure
+          $components = "frida-core"  # Default required component
+          
+          # Add custom components if specified
+          if ("${{ inputs.custom_components }}" -ne "") {
+            $customComponents = "${{ inputs.custom_components }}".Split(',')
+            foreach ($component in $customComponents) {
+              if ($component -ne "frida-core" -and -not $components.Contains($component)) {
+                $components += ",$component"
+              }
+            }
+          }
+          
+          Write-Host "Ensuring submodules for: $components"
+          python tools/ensure-submodules.py $components
+        shell: pwsh
       
       - name: Install Qt if needed (Windows)
         if: inputs.os == 'windows' && inputs.architecture == 'x86_64'
@@ -128,6 +225,28 @@ jobs:
         run: |
           python releng/deps.py sync sdk $XTOOLS_HOST "$GITHUB_WORKSPACE/deps/sdk-$XTOOLS_HOST"
       
+      # Generate devkits argument based on input
+      - name: Process devkits parameter
+        id: devkits
+        run: |
+          $devkits = "${{ inputs.devkits }}"
+          $devkitArgs = ""
+          
+          # Process frida-gum devkits
+          if ($devkits.Contains("gum") -or $devkits.Contains("gumjs")) {
+            $gumDevkits = ($devkits.Split(',') | Where-Object { $_ -eq "gum" -or $_ -eq "gumjs" }) -join ","
+            $devkitArgs += " `"-Dfrida-gum:devkits=$gumDevkits`""
+          }
+          
+          # Process frida-core devkits
+          if ($devkits.Contains("core")) {
+            $devkitArgs += " `"-Dfrida-core:devkits=core`""
+          }
+          
+          # Save to output
+          "devkit_args=$devkitArgs" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        shell: pwsh
+      
       - name: Configure (Windows)
         if: inputs.os == 'windows'
         run: >-
@@ -140,8 +259,7 @@ jobs:
           --enable-inject
           --
           "-Dfrida_qml=auto"
-          "-Dfrida-gum:devkits=gum,gumjs"
-          "-Dfrida-core:devkits=core"
+          ${{ steps.devkits.outputs.devkit_args }}
       
       - name: Configure (Linux)
         if: inputs.os == 'linux'
@@ -156,8 +274,7 @@ jobs:
           --
           -Dlibdir=lib
           -Dfrida_qml=${{ inputs.architecture == 'x86_64' && 'enabled' || 'disabled' }}
-          -Dfrida-gum:devkits=gum,gumjs
-          -Dfrida-core:devkits=core
+          ${{ steps.devkits.outputs.devkit_args }}
       
       - name: Compile (Windows)
         if: inputs.os == 'windows'
